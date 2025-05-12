@@ -503,7 +503,9 @@ TASK:
 
 IMPORTANT: 
 - Return ONLY the formula/expression, nothing else
-- For entity names with multiple words (like "Luke Skywalker"), use quotes: "luke skywalker".mass
+- For entity names with multiple words (like "Luke Skywalker" or "Tapu Koko"), use quotes: "luke skywalker".mass or "tapu koko".weight
+- Handle compound names like Tapu-Koko, Type-Null as single units (e.g., "tapu-koko".weight)
+- Exclude titles (like General, Captain, Princess) from character names (e.g., use "grievous" not "general grievous")
 - Use lowercase for all entity names
 - Handle division, multiplication, addition, subtraction, exponents, etc.
 - Use proper operator precedence with parentheses when needed"""
@@ -522,7 +524,7 @@ IMPORTANT:
             formula = formula[3:-3].strip()
         return formula
     else:
-        print(f"Error with AI: {response.status_code} - {response.text}")
+        print(f"{Fore.RED}Error with AI: {response.status_code} - {response.text}{Style.RESET_ALL}")
         return None
 
 def normalize_entity_name(name):
@@ -531,9 +533,44 @@ def normalize_entity_name(name):
     name = name.strip('"\'')
     # Replace dots with spaces (for cases like "ratts.tyerel")
     name = name.replace('.', ' ')
+    # Replace hyphens with spaces (for cases like "tapu-koko")
+    name = name.replace('-', ' ')
     # Normalize whitespace
     name = ' '.join(name.split())
-    return name.lower()
+    # Convert to lowercase
+    name = name.lower()
+    
+    # Strip common titles from Star Wars characters
+    return strip_titles(name)
+
+# Common titles that should be stripped from entity names
+COMMON_TITLES = [
+    "general", "captain", "commander", "admiral", "lieutenant", 
+    "sergeant", "corporal", "private", "master", "lord", "darth",
+    "princess", "prince", "king", "queen", "emperor", "empress",
+    "doctor", "dr", "professor", "prof", "count", "baron", "sir"
+]
+
+def strip_titles(name):
+    """Remove common titles from entity names"""
+    words = name.split()
+    if len(words) <= 1:
+        return name  # Single word, no titles to strip
+    
+    # Check if the first word is a title
+    if words[0].lower() in COMMON_TITLES:
+        # Removed the title and return the rest of the name
+        print(f"{Fore.YELLOW}Stripping title: '{words[0]}' from '{name}' → '{' '.join(words[1:])}'{Style.RESET_ALL}")
+        return ' '.join(words[1:])
+    
+    return name
+
+# Add known compound Pokémon names that need special handling
+COMPOUND_POKEMON_NAMES = [
+    "tapu koko", "tapu lele", "tapu bulu", "tapu fini",
+    "mr mime", "mime jr", "type null", "jangmo o",
+    "hakamo o", "kommo o", "porygon z"
+]
 
 def evaluate_expression(formula):
     """Evaluate the mathematical expression based on the formula provided by AI"""
@@ -556,8 +593,31 @@ def evaluate_expression(formula):
         "luke": "luke skywalker",
         "lukeskywalker": "luke skywalker",
         "ratts tyerel": "ratts tyerell",  # Note the spelling correction
-        "rattstyerel": "ratts tyerell"
+        "rattstyerel": "ratts tyerell",
+        "tapu": "tapu koko",  # Add common Tapu variations 
+        "tapukoko": "tapu koko"
     }
+    
+    # Special handling for Tapu Koko in formula before extraction
+    for compound_name in COMPOUND_POKEMON_NAMES:
+        # Look for variations of the compound name without quotes
+        variations = [
+            compound_name,  # normal form (tapu koko)
+            compound_name.replace(" ", ""),  # no spaces (tapukoko)
+            compound_name.replace(" ", "-"),  # hyphenated (tapu-koko)
+            compound_name.replace(" ", ".")   # dotted (tapu.koko)
+        ]
+        
+        for variation in variations:
+            # Replace all instances not in quotes with the quoted version
+            # Only replace when it's a standalone term, not part of another word
+            # This is a complex regex that handles boundaries correctly
+            formula = re.sub(
+                r'(?<!")\b' + re.escape(variation) + r'\b(?!")', 
+                f'"{compound_name}"', 
+                formula, 
+                flags=re.IGNORECASE
+            )
     
     # First, find all entities in the formula
     entities_to_process = []
@@ -576,6 +636,14 @@ def evaluate_expression(formula):
         # Check for name variations
         if normalized_name in name_variations:
             normalized_name = name_variations[normalized_name]
+        
+        # Check for compound Pokémon names when we have a partial match
+        for compound_name in COMPOUND_POKEMON_NAMES:
+            compound_parts = compound_name.split()
+            if (normalized_name == compound_parts[0] and len(compound_parts) > 1):
+                print(f"{Fore.YELLOW}Found partial match for compound Pokémon name: '{normalized_name}' → '{compound_name}'{Style.RESET_ALL}")
+                normalized_name = compound_name
+                break
             
         # Store for processing
         entities_to_process.append((match.group(0), normalized_name, attribute))
@@ -664,8 +732,22 @@ def run_challenge():
         return
     
     start_data = start_response.json()
-    problem_id = start_data["problem_id"]
-    problem = start_data["problem"]
+    print(f"{Fore.BLUE}Start response: {json.dumps(start_data, indent=2)}{Style.RESET_ALL}")
+    
+    # Handle different possible response formats
+    if "problem_id" in start_data:
+        problem_id = start_data["problem_id"]
+    elif "id" in start_data:
+        problem_id = start_data["id"]
+    else:
+        print(f"{Fore.RED}Error: Could not find problem ID in response: {json.dumps(start_data, indent=2)}{Style.RESET_ALL}")
+        return
+    
+    if "problem" in start_data:
+        problem = start_data["problem"]
+    else:
+        print(f"{Fore.RED}Error: Could not find problem text in response: {json.dumps(start_data, indent=2)}{Style.RESET_ALL}")
+        return
     
     solved_count = 0
     start_time = time.time()
@@ -702,15 +784,37 @@ def run_challenge():
             print(f"{Fore.BLUE}API Response: {json.dumps(solution_data, indent=2)}{Style.RESET_ALL}")
             
             # Check for next problem in various possible response formats
-            if "next_problem" in solution_data and "next_problem_id" in solution_data:
-                problem_id = solution_data["next_problem_id"]
-                problem = solution_data["next_problem"]
-                print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
-            elif "problem" in solution_data and "problem_id" in solution_data:
-                problem_id = solution_data["problem_id"]
-                problem = solution_data["problem"]
-                print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
-            else:
+            next_problem_found = False
+            
+            # Check for nested next_problem object
+            if "next_problem" in solution_data and isinstance(solution_data["next_problem"], dict):
+                next_problem = solution_data["next_problem"]
+                if "id" in next_problem and "problem" in next_problem:
+                    problem_id = next_problem["id"]
+                    problem = next_problem["problem"]
+                    next_problem_found = True
+                    print(f"{Fore.GREEN}✅ Correct! Next problem received (nested format).{Style.RESET_ALL}")
+            
+            # Check for old formats if nested format not found
+            if not next_problem_found:
+                if "next_problem" in solution_data and "next_problem_id" in solution_data:
+                    problem_id = solution_data["next_problem_id"]
+                    problem = solution_data["next_problem"]
+                    next_problem_found = True
+                    print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+                elif "problem" in solution_data and "problem_id" in solution_data:
+                    problem_id = solution_data["problem_id"]
+                    problem = solution_data["problem"]
+                    next_problem_found = True
+                    print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+                elif "problem" in solution_data and "id" in solution_data:
+                    problem_id = solution_data["id"]
+                    problem = solution_data["problem"]
+                    next_problem_found = True
+                    print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+            
+            # If no next problem was found, we're done
+            if not next_problem_found:
                 print(f"{Fore.GREEN}✅ All problems solved! Final score: {Fore.WHITE}{solved_count}{Style.RESET_ALL}")
                 break
         else:
