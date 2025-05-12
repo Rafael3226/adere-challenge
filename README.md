@@ -1,6 +1,88 @@
-# Star Wars & Pokémon Challenge Solver
+# Adere Challenge Solver
 
-This script automates the Adere.so programming challenge involving Star Wars and Pokémon data.
+A modular solver for the Adere coding challenge involving Star Wars characters and Pokémon.
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/adere-challenge.git
+cd adere-challenge
+
+# Install the package in development mode
+pip install -e .
+```
+
+## Configuration
+
+Create a `.env` file in the root directory with your authentication token:
+
+```
+AUTH_TOKEN=your_token_here
+```
+
+## Usage
+
+Run the challenge solver:
+
+```bash
+# Run with test problem
+adere --test
+
+# Run the actual challenge
+adere
+
+# Skip prefetching data (faster startup, but might be slower for first queries)
+adere --no-prefetch
+```
+
+Or use with explicit token:
+
+```bash
+adere --token your_token_here
+```
+
+## Project Structure
+
+```
+adere-challenge/
+├── adere_challenge/           # Main package
+│   ├── __init__.py
+│   ├── cli.py                 # CLI entry point
+│   ├── api/                   # API client functionality
+│   │   ├── __init__.py
+│   │   ├── client.py          # API client
+│   │   └── endpoints.py       # API endpoints
+│   ├── data/                  # Data management
+│   │   ├── __init__.py
+│   │   ├── cache.py           # Database cache
+│   │   ├── pokemon.py         # Pokemon API interactions
+│   │   └── starwars.py        # Star Wars API interactions
+│   ├── solvers/               # Problem solvers
+│   │   ├── __init__.py
+│   │   ├── entities.py        # Entity name handling
+│   │   └── expression.py      # Expression evaluation
+│   ├── challenge/             # Challenge runner
+│   │   ├── __init__.py
+│   │   └── runner.py          # Challenge execution
+│   └── utils/                 # Utilities
+│       ├── __init__.py
+│       ├── constants.py       # Common constants
+│       └── logger.py          # Logging utility
+├── failed_problems/           # Logs for failed problems
+├── setup.py                   # Package setup
+├── requirements.txt           # Dependencies
+└── .env                       # Environment variables
+```
+
+## Features
+
+- Caching of API responses to avoid redundant requests
+- Smart entity name resolution across different APIs
+- Problem parsing using AI
+- Mathematical expression evaluation
+- Detailed logging and error handling
+- Command-line interface
 
 ## Overview
 
