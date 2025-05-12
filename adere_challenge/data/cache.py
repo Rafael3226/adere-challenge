@@ -322,7 +322,7 @@ def log_failed_problem(problem_text, formula, answer, response_data, entities_in
                 f.write(f"{calculation}\n\n")
             
             f.write("SUBMITTED ANSWER:\n")
-            f.write(f"{answer}\n\n")
+            f.write(f"{float(answer):.10f}\n\n")
             
             f.write("API RESPONSE:\n")
             f.write(f"{json.dumps(response_data, indent=2)}\n\n")

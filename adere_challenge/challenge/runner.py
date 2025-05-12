@@ -183,7 +183,7 @@ class ChallengeRunner:
             # Submit the solution
             solution_data = {
                 "problem_id": problem_id,
-                "answer": answer
+                "answer": f"{float(answer):.10f}"  # Format with 10 decimal places without scientific notation
             }
             
             has_problem = False  # Reset for this iteration

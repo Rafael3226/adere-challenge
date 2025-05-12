@@ -156,12 +156,12 @@ def evaluate_expression(formula, api_client=None):
     try:
         log(f"{Fore.BLUE}Evaluating formula: {Fore.CYAN}{eval_formula}{Style.RESET_ALL}")
         result = eval(eval_formula)
-        # Round to 10 decimal places as specified in the challenge
-        result = round(float(result), 10)
+        # Round to 10 decimal places as specified in the challenge and ensure it's not in scientific notation
+        result = float(f"{float(result):.10f}")
         log(f"{Fore.MAGENTA}Result: {Fore.WHITE}{result}{Style.RESET_ALL}")
         
         # Return the result along with logging information
-        calculation_log = f"Formula: {formula}\nEvaluating: {eval_formula}\nResult: {result}"
+        calculation_log = f"Formula: {formula}\nEvaluating: {eval_formula}\nResult: {result:.10f}"
         return result, "\n".join(entities_log), calculation_log
     except Exception as e:
         log(f"{Fore.RED}Error evaluating formula: {e}{Style.RESET_ALL}")
@@ -181,11 +181,12 @@ def evaluate_expression(formula, api_client=None):
             
             # Try evaluating the cleaned formula
             result = eval(clean_formula)
-            result = round(float(result), 10)
+            # Format with 10 decimal places without scientific notation
+            result = float(f"{float(result):.10f}")
             log(f"{Fore.GREEN}Salvaged result: {Fore.WHITE}{result}{Style.RESET_ALL}")
             
             # Return the result along with logging information
-            calculation_log = f"Formula: {formula}\nEvaluating (after cleanup): {clean_formula}\nResult: {result}"
+            calculation_log = f"Formula: {formula}\nEvaluating (after cleanup): {clean_formula}\nResult: {result:.10f}"
             return result, "\n".join(entities_log), calculation_log
         except Exception as e2:
             log(f"{Fore.RED}Cleanup failed: {e2}{Style.RESET_ALL}")

@@ -28,27 +28,27 @@ def extract_formula_with_ai(problem_statement, auth_token=None):
 Each problem will describe a scenario requiring mathematical operations on entity attributes.
 
 Entity types and their attributes:
-1. Star Wars Characters: name, height, mass, homeworld
-2. Star Wars Planets: name, rotation_period, orbital_period, diameter, surface_water, population
+1. Star Wars Characters: name, height, homeworld
+2. Star Wars Planets: name, rotation_period, orbital_period, diameter, surface_water, population, mass
 3. Pokémon: name, base_experience, height, weight
 
 TASK:
 1. Identify all entities mentioned in the problem
-2. Determine which attributes are involved
+2. Determine which attributes are involved for each entity
 3. Extract the mathematical operations to be performed
 4. Express this as a clear formula
 
 IMPORTANT: 
+- Estructure for each vaule is: "entity".attribute
 - Return ONLY the formula/expression, nothing else
-- For entity names with multiple words (like "Luke Skywalker" or "Tapu Koko"), use quotes: "luke skywalker".mass or "tapu koko".weight
-- Handle compound names like Tapu-Koko, Type-Null as single units (e.g., "tapu-koko".weight)
+- For entity names with multiple words (like "Luke Skywalker" or "Tapu Koko"), use quotes: "luke skywalker".[attributes] or "tapu koko".[attributes]
+- Handle compound names like Tapu-Koko, Type-Null as single units (e.g., "tapu-koko".[attributes])
 - Exclude titles (like General, Captain, Princess) from character names (e.g., use "grievous" not "general grievous")
 - Use lowercase for all entity names
 - For special Pokémon names with hyphens such as "Kommo-o", "Hakamo-o", "Ho-oh", etc., keep the hyphen in the name
 - Always use double quotes for entity names, never single quotes
 - Use proper operator precedence with parentheses when needed
 - The formula should only contain entity.attribute references, numbers, and mathematical operators (+, -, *, /, **, etc.)
-- Pay attention to context - sometimes the problem might refer to "Hutt" which should be translated to "jabba"
 - Be precise - the formula should capture the exact mathematical relationship described in the problem"""
     
     # Prepare request payload
