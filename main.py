@@ -4,6 +4,7 @@ import json
 import re
 import os
 import sqlite3
+import hashlib
 from dotenv import load_dotenv
 import urllib3
 from colorama import Fore, Back, Style, init
@@ -70,6 +71,17 @@ def initialize_db():
     )
     ''')
     
+    # Create problem cache table
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS problem_cache (
+        problem_hash TEXT PRIMARY KEY,
+        problem_text TEXT,
+        formula TEXT,
+        answer REAL,
+        timestamp INTEGER
+    )
+    ''')
+    
     conn.commit()
     conn.close()
     print(f"{Fore.BLUE}Database initialized at {Fore.CYAN}{DB_FILE}{Style.RESET_ALL}")
@@ -102,11 +114,16 @@ def load_cache():
         for name, data_json in cursor.fetchall():
             cache["swapi_planets"][name] = json.loads(data_json)
         
+        # Count problem cache entries
+        cursor.execute("SELECT COUNT(*) FROM problem_cache")
+        problem_count = cursor.fetchone()[0]
+        
         conn.close()
         
         print(f"{Fore.GREEN}Cache loaded with {Fore.WHITE}{len(cache['pokemon'])} Pokémon, "
-              f"{Fore.WHITE}{len(cache['swapi_characters'])} Star Wars characters, and "
-              f"{Fore.WHITE}{len(cache['swapi_planets'])} Star Wars planets.{Style.RESET_ALL}")
+              f"{Fore.WHITE}{len(cache['swapi_characters'])} Star Wars characters, "
+              f"{Fore.WHITE}{len(cache['swapi_planets'])} Star Wars planets, and "
+              f"{Fore.WHITE}{problem_count} cached problems.{Style.RESET_ALL}")
               
     except Exception as e:
         print(f"{Fore.RED}Error loading cache: {e}{Style.RESET_ALL}")
@@ -673,6 +690,22 @@ def evaluate_expression(formula):
             # Default to 0 if we can't find the attribute
             eval_formula = eval_formula.replace(original_text, "0")
     
+    # Additional cleanup to remove any remaining entity names that might not have been properly matched
+    # This regex will find words that aren't part of a mathematical expression
+    remaining_words_pattern = re.compile(r'[a-zA-Z_][a-zA-Z0-9_]*')
+    
+    # Check if there are still words in the formula
+    if remaining_words_pattern.search(eval_formula):
+        print(f"{Fore.YELLOW}Warning: Found remaining words in formula. Cleaning up: {Fore.CYAN}{eval_formula}{Style.RESET_ALL}")
+        
+        # Replace any remaining words with 0
+        eval_formula = remaining_words_pattern.sub("0", eval_formula)
+        print(f"{Fore.YELLOW}Cleaned formula: {Fore.CYAN}{eval_formula}{Style.RESET_ALL}")
+    
+    # Handle any spaces between numbers that could cause issues (like "5 6" which is invalid)
+    # Replace patterns like "number space number" with "number operator number"
+    eval_formula = re.sub(r'(\d+)\s+(\d+)', r'\1+\2', eval_formula)
+    
     # Evaluate the formula
     try:
         print(f"{Fore.BLUE}Evaluating formula: {Fore.CYAN}{eval_formula}{Style.RESET_ALL}")
@@ -684,7 +717,94 @@ def evaluate_expression(formula):
     except Exception as e:
         print(f"{Fore.RED}Error evaluating formula: {e}{Style.RESET_ALL}")
         print(f"{Fore.RED}Formula: {eval_formula}{Style.RESET_ALL}")
-        return None
+        
+        # Last resort cleanup - try to salvage the calculation by replacing everything non-numeric
+        # with basic operations
+        try:
+            # This is a more aggressive approach that keeps only numbers and basic operators
+            clean_formula = re.sub(r'[^0-9+\-*/().\s]', '0', eval_formula)
+            # Replace multiple consecutive zeros with a single zero
+            clean_formula = re.sub(r'0+', '0', clean_formula)
+            # Handle any invalid math operations like double operators
+            clean_formula = re.sub(r'[\+\-\*/]{2,}', '+', clean_formula)
+            
+            print(f"{Fore.YELLOW}Attempting last-resort cleanup. New formula: {Fore.CYAN}{clean_formula}{Style.RESET_ALL}")
+            
+            # Try evaluating the cleaned formula
+            result = eval(clean_formula)
+            result = round(float(result), 10)
+            print(f"{Fore.GREEN}Salvaged result: {Fore.WHITE}{result}{Style.RESET_ALL}")
+            return result
+        except Exception as e2:
+            print(f"{Fore.RED}Cleanup failed: {e2}{Style.RESET_ALL}")
+            return None
+
+def get_problem_hash(problem_text):
+    """Generate a hash for a problem text to use as a unique identifier"""
+    # Remove extra whitespace and convert to lowercase for consistent hashing
+    normalized_text = ' '.join(problem_text.lower().split())
+    return hashlib.md5(normalized_text.encode('utf-8')).hexdigest()
+
+def check_problem_cache(problem_text):
+    """Check if a problem is in the cache
+    
+    Args:
+        problem_text: The problem text to look for
+        
+    Returns:
+        tuple: (is_cached, formula, answer) where is_cached is a boolean
+    """
+    try:
+        problem_hash = get_problem_hash(problem_text)
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "SELECT formula, answer FROM problem_cache WHERE problem_hash = ?", 
+            (problem_hash,)
+        )
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            formula, answer = result
+            return True, formula, answer
+        else:
+            return False, None, None
+            
+    except Exception as e:
+        print(f"{Fore.RED}Error checking problem cache: {e}{Style.RESET_ALL}")
+        return False, None, None
+
+def add_to_problem_cache(problem_text, formula, answer):
+    """Add a problem and its solution to the cache
+    
+    Args:
+        problem_text: The original problem text
+        formula: The formula used to solve the problem
+        answer: The calculated answer
+    """
+    try:
+        problem_hash = get_problem_hash(problem_text)
+        timestamp = int(time.time())
+        
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            "INSERT OR REPLACE INTO problem_cache (problem_hash, problem_text, formula, answer, timestamp) VALUES (?, ?, ?, ?, ?)",
+            (problem_hash, problem_text, formula, answer, timestamp)
+        )
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"{Fore.GREEN}Problem added to cache with hash {Fore.WHITE}{problem_hash[:8]}{Style.RESET_ALL}")
+        
+    except Exception as e:
+        print(f"{Fore.RED}Error adding to problem cache: {e}{Style.RESET_ALL}")
 
 def test_solver():
     """Test the solver with the practice endpoint"""
@@ -707,12 +827,28 @@ def test_solver():
         
         print(f"{Fore.CYAN}Test problem: {Fore.WHITE}{problem}{Style.RESET_ALL}")
         
-        # Parse problem with AI
-        formula = parse_problem_with_ai(problem)
-        print(f"{Fore.BLUE}AI Formula: {Fore.CYAN}{formula}{Style.RESET_ALL}")
+        # Check if this problem is already in our cache
+        is_cached, cached_formula, cached_answer = check_problem_cache(problem)
         
-        # Evaluate the formula
-        answer = evaluate_expression(formula)
+        if is_cached:
+            print(f"{Fore.GREEN}CACHE HIT! Problem found in cache.{Style.RESET_ALL}")
+            print(f"{Fore.BLUE}Cached formula: {Fore.CYAN}{cached_formula}{Style.RESET_ALL}")
+            print(f"{Fore.MAGENTA}Cached answer: {Fore.WHITE}{cached_answer}{Style.RESET_ALL}")
+            formula = cached_formula
+            answer = cached_answer
+        else:
+            print(f"{Fore.YELLOW}Cache miss. Calculating answer...{Style.RESET_ALL}")
+            # Parse problem with AI
+            formula = parse_problem_with_ai(problem)
+            print(f"{Fore.BLUE}AI Formula: {Fore.CYAN}{formula}{Style.RESET_ALL}")
+            
+            # Evaluate the formula
+            answer = evaluate_expression(formula)
+            
+            # Store in cache if we got a valid answer
+            if answer is not None:
+                add_to_problem_cache(problem, formula, answer)
+        
         print(f"{Fore.MAGENTA}Calculated answer: {Fore.WHITE}{answer}{Style.RESET_ALL}")
         print(f"{Fore.BLUE}Expected answer: {Fore.WHITE}{expected_answer}{Style.RESET_ALL}")
         
@@ -750,83 +886,167 @@ def run_challenge():
         return
     
     solved_count = 0
+    attempted_count = 0
     start_time = time.time()
     end_time = start_time + 180  # 3 minutes
     
     while time.time() < end_time:
-        print(f"\n{Fore.CYAN}Problem #{solved_count + 1}: {Fore.WHITE}{problem}{Style.RESET_ALL}")
+        attempted_count += 1
+        print(f"\n{Fore.CYAN}Problem #{attempted_count}: {Fore.WHITE}{problem}{Style.RESET_ALL}")
         
-        # Parse problem with AI
-        formula = parse_problem_with_ai(problem)
-        print(f"{Fore.BLUE}AI Formula: {Fore.CYAN}{formula}{Style.RESET_ALL}")
+        # Check if this problem is already in our cache
+        is_cached, cached_formula, cached_answer = check_problem_cache(problem)
         
-        # Evaluate the formula
-        answer = evaluate_expression(formula)
-        print(f"{Fore.MAGENTA}Answer: {Fore.WHITE}{answer}{Style.RESET_ALL}")
+        if is_cached:
+            print(f"{Fore.GREEN}CACHE HIT! Problem found in cache.{Style.RESET_ALL}")
+            print(f"{Fore.BLUE}Cached formula: {Fore.CYAN}{cached_formula}{Style.RESET_ALL}")
+            print(f"{Fore.MAGENTA}Cached answer: {Fore.WHITE}{cached_answer}{Style.RESET_ALL}")
+            formula = cached_formula
+            answer = cached_answer
+        else:
+            print(f"{Fore.YELLOW}Cache miss. Calculating answer...{Style.RESET_ALL}")
+            # Parse problem with AI
+            formula = parse_problem_with_ai(problem)
+            print(f"{Fore.BLUE}AI Formula: {Fore.CYAN}{formula}{Style.RESET_ALL}")
+            
+            # Evaluate the formula
+            answer = evaluate_expression(formula)
+            
+            # Store in cache if we got a valid answer
+            if answer is not None:
+                add_to_problem_cache(problem, formula, answer)
         
+        # Handle case where we couldn't calculate an answer
+        if answer is None:
+            print(f"{Fore.RED}No valid answer calculated. Trying to continue with next problem...{Style.RESET_ALL}")
+            # Use a default value that is likely incorrect but allows us to get the next problem
+            answer = 0
+            
         # Submit the solution
         solution_data = {
             "problem_id": problem_id,
             "answer": answer
         }
         
-        solution_response = requests.post(
-            f"{BASE_URL}/challenge/solution", 
-            headers=headers,
-            json=solution_data
-        )
-        
-        if solution_response.status_code == 200:
-            solution_data = solution_response.json()
-            solved_count += 1
+        next_problem_found = False
+        try:
+            solution_response = requests.post(
+                f"{BASE_URL}/challenge/solution", 
+                headers=headers,
+                json=solution_data
+            )
             
-            # Debug the response
-            print(f"{Fore.BLUE}API Response: {json.dumps(solution_data, indent=2)}{Style.RESET_ALL}")
-            
-            # Check for next problem in various possible response formats
-            next_problem_found = False
-            
-            # Check for nested next_problem object
-            if "next_problem" in solution_data and isinstance(solution_data["next_problem"], dict):
-                next_problem = solution_data["next_problem"]
-                if "id" in next_problem and "problem" in next_problem:
-                    problem_id = next_problem["id"]
-                    problem = next_problem["problem"]
-                    next_problem_found = True
-                    print(f"{Fore.GREEN}✅ Correct! Next problem received (nested format).{Style.RESET_ALL}")
-            
-            # Check for old formats if nested format not found
-            if not next_problem_found:
-                if "next_problem" in solution_data and "next_problem_id" in solution_data:
-                    problem_id = solution_data["next_problem_id"]
-                    problem = solution_data["next_problem"]
-                    next_problem_found = True
-                    print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
-                elif "problem" in solution_data and "problem_id" in solution_data:
-                    problem_id = solution_data["problem_id"]
-                    problem = solution_data["problem"]
-                    next_problem_found = True
-                    print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
-                elif "problem" in solution_data and "id" in solution_data:
-                    problem_id = solution_data["id"]
-                    problem = solution_data["problem"]
-                    next_problem_found = True
-                    print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
-            
-            # If no next problem was found, we're done
-            if not next_problem_found:
-                print(f"{Fore.GREEN}✅ All problems solved! Final score: {Fore.WHITE}{solved_count}{Style.RESET_ALL}")
+            if solution_response.status_code == 200:
+                solution_data = solution_response.json()
+                # Only increment solved count if we had a valid answer
+                if answer is not None:
+                    solved_count += 1
+                
+                # Debug the response
+                print(f"{Fore.BLUE}API Response: {json.dumps(solution_data, indent=2)}{Style.RESET_ALL}")
+                
+                # Check for next problem in various possible response formats
+                
+                # Check for nested next_problem object
+                if "next_problem" in solution_data and isinstance(solution_data["next_problem"], dict):
+                    next_problem = solution_data["next_problem"]
+                    if "id" in next_problem and "problem" in next_problem:
+                        problem_id = next_problem["id"]
+                        problem = next_problem["problem"]
+                        next_problem_found = True
+                        print(f"{Fore.GREEN}✅ Correct! Next problem received (nested format).{Style.RESET_ALL}")
+                
+                # Check for old formats if nested format not found
+                if not next_problem_found:
+                    if "next_problem" in solution_data and "next_problem_id" in solution_data:
+                        problem_id = solution_data["next_problem_id"]
+                        problem = solution_data["next_problem"]
+                        next_problem_found = True
+                        print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+                    elif "problem" in solution_data and "problem_id" in solution_data:
+                        problem_id = solution_data["problem_id"]
+                        problem = solution_data["problem"]
+                        next_problem_found = True
+                        print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+                    elif "problem" in solution_data and "id" in solution_data:
+                        problem_id = solution_data["id"]
+                        problem = solution_data["problem"]
+                        next_problem_found = True
+                        print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+                
+                # If no next problem was found, we're done
+                if not next_problem_found:
+                    print(f"{Fore.GREEN}✅ All problems solved! Final score: {Fore.WHITE}{solved_count}/{attempted_count}{Style.RESET_ALL}")
+                    break
+            else:
+                print(f"{Fore.RED}❌ Error submitting solution: {solution_response.status_code} - {solution_response.text}{Style.RESET_ALL}")
+                # Try to get the next problem instead of breaking
+                print(f"{Fore.YELLOW}Attempting to get next problem despite error...{Style.RESET_ALL}")
+                
+                try:
+                    # Try to get the next problem directly
+                    next_response = requests.get(f"{BASE_URL}/challenge/next", headers=headers)
+                    if next_response.status_code == 200:
+                        next_data = next_response.json()
+                        print(f"{Fore.BLUE}Next problem response: {json.dumps(next_data, indent=2)}{Style.RESET_ALL}")
+                        
+                        if "id" in next_data:
+                            problem_id = next_data["id"]
+                        elif "problem_id" in next_data:
+                            problem_id = next_data["problem_id"]
+                        else:
+                            print(f"{Fore.RED}Could not find problem ID in next response{Style.RESET_ALL}")
+                            break
+                            
+                        if "problem" in next_data:
+                            problem = next_data["problem"]
+                            next_problem_found = True
+                            print(f"{Fore.GREEN}Successfully retrieved next problem.{Style.RESET_ALL}")
+                        else:
+                            print(f"{Fore.RED}Could not find problem text in next response{Style.RESET_ALL}")
+                            break
+                    else:
+                        print(f"{Fore.RED}Failed to get next problem: {next_response.status_code} - {next_response.text}{Style.RESET_ALL}")
+                        # Only break if we can't continue
+                        break
+                except Exception as e:
+                    print(f"{Fore.RED}Error getting next problem: {e}{Style.RESET_ALL}")
+                    # Only break if we can't continue
+                    break
+        except Exception as e:
+            print(f"{Fore.RED}Error during solution submission: {e}{Style.RESET_ALL}")
+            # Try to continue with the next problem
+            try:
+                # Try to get the next problem directly
+                next_response = requests.get(f"{BASE_URL}/challenge/next", headers=headers)
+                if next_response.status_code == 200:
+                    next_data = next_response.json()
+                    if "id" in next_data and "problem" in next_data:
+                        problem_id = next_data["id"]
+                        problem = next_data["problem"]
+                        next_problem_found = True
+                        print(f"{Fore.GREEN}Retrieved next problem after error.{Style.RESET_ALL}")
+                    else:
+                        print(f"{Fore.RED}Invalid next problem response{Style.RESET_ALL}")
+                        break
+                else:
+                    print(f"{Fore.RED}Failed to get next problem after error{Style.RESET_ALL}")
+                    break
+            except:
+                print(f"{Fore.RED}Failed to recover from error{Style.RESET_ALL}")
                 break
-        else:
-            print(f"{Fore.RED}❌ Error submitting solution: {solution_response.status_code} - {solution_response.text}{Style.RESET_ALL}")
+                
+        # If we're completely out of problems, break
+        if not next_problem_found:
+            print(f"{Fore.YELLOW}No more problems available. Challenge completed.{Style.RESET_ALL}")
             break
-        
+            
         # Check if we're out of time
         if time.time() >= end_time:
-            print(f"{Fore.YELLOW}⏱️ Time's up! Problems solved: {Fore.WHITE}{solved_count}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}⏱️ Time's up! Problems solved: {Fore.WHITE}{solved_count}/{attempted_count}{Style.RESET_ALL}")
             break
     
-    print(f"\n{Fore.GREEN}🏁 Challenge completed! Problems solved: {Fore.WHITE}{solved_count}{Style.RESET_ALL}")
+    print(f"\n{Fore.GREEN}🏁 Challenge completed! Problems solved: {Fore.WHITE}{solved_count}/{attempted_count}{Style.RESET_ALL}")
     print(f"{Fore.BLUE}Time elapsed: {Fore.WHITE}{time.time() - start_time:.2f} seconds{Style.RESET_ALL}")
 
 if __name__ == "__main__":

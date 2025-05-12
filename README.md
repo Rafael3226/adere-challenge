@@ -46,9 +46,20 @@ The SQLite database provides a robust and persistent cache that survives between
 
 ## Features
 
+### Problem Caching
+
+The script now stores previously solved problems and their answers:
+- Each problem text is hashed to create a unique identifier
+- The formula, answer, and timestamp are saved to the SQLite database
+- When a problem is encountered again, the cached answer is used immediately
+- This eliminates the need to recalculate solutions for repeat problems
+- Dramatically improves performance when the challenge repeats questions
+
+This complete caching solution saves time on both API calls and AI processing for problems that have been solved before.
+
 ### Intelligent API Selection
 
-The script now uses a sophisticated algorithm to determine which API is most likely to contain an entity:
+The script uses a sophisticated algorithm to determine which API is most likely to contain an entity:
 - Analyzes entity names for patterns specific to each universe
 - Assigns scores based on name characteristics and linguistic patterns
 - Creates a custom API search order for each entity
@@ -76,31 +87,38 @@ Colors make it easy to scan the output quickly and identify important informatio
 2. Loads existing cached data into memory for fast access
 3. If the cache is insufficient, prefetches common entities
 4. Retrieves a problem from the Adere.so API
-5. Uses GPT-4o-mini to translate the problem into a mathematical expression
-6. For each entity in the expression:
+5. Checks if the problem exists in the problem cache
+   - If found, uses the cached formula and answer
+   - If not found, proceeds with formula generation and calculation
+6. For new problems, uses GPT-4o-mini to translate the problem into a mathematical expression
+7. For each entity in the expression:
    - First checks the in-memory cache for the entity
    - If not found, uses the enhanced entity resolution system to:
      - Analyze the entity name to determine the most likely API source
      - Try APIs in order of decreasing likelihood
      - Try common name variations (removing spaces, first name only)
      - Create and cache a fallback entity if all lookups fail
-7. Evaluates the expression with the retrieved data
-8. Submits the answer and receives the next problem
-9. Repeats until the 3-minute limit is reached
+8. Evaluates the expression with the retrieved data
+9. Caches the problem, formula, and answer for future use
+10. Submits the answer and receives the next problem
+11. Repeats until the 3-minute limit is reached
 
 ## Performance Optimization
 
-- Uses SQLite for persistent, structured storage of entity data
+- Uses SQLite for persistent, structured storage of entity data and solved problems
 - Maintains a dual-layer cache system (in-memory + database)
+- Caches complete problems with their formulas and answers
+- Uses MD5 hashing for fast problem lookups
 - Implements intelligent API selection based on entity name analysis
 - Uses a scoring system with weighted patterns and linguistic heuristics
 - Handles unknown entities gracefully with fallback mechanisms
+- Strips titles from entity names to improve matching
 - Tries multiple name variations to maximize entity matches
 - Skips prefetching entirely when sufficient entities are already cached
 - Uses efficient SQL queries with primary key lookups for fast data retrieval
 - Automatically stores all encountered entities for future use
 - Features a color-coded CLI for improved readability and user experience
 
-The combination of intelligent API selection and enhanced entity resolution ensures maximum success in solving problems while minimizing unnecessary API calls.
+The combination of comprehensive caching, intelligent API selection, and enhanced entity resolution ensures maximum performance while minimizing unnecessary calculations and API calls.
 
 Good luck with the challenge! 
