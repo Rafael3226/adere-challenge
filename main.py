@@ -8,6 +8,7 @@ import hashlib
 from dotenv import load_dotenv
 import urllib3
 from colorama import Fore, Back, Style, init
+import datetime
 
 # Initialize colorama
 init(autoreset=True)
@@ -36,6 +37,9 @@ headers = {
 
 # Database file path
 DB_FILE = "api_cache.db"
+
+# Logs directory
+LOGS_DIR = "failed_problems"
 
 # In-memory cache for faster access during runtime
 cache = {
@@ -135,6 +139,11 @@ def initialize_db():
     conn.commit()
     conn.close()
     print(f"{Fore.BLUE}Database initialized at {Fore.CYAN}{DB_FILE}{Style.RESET_ALL}")
+    
+    # Create logs directory if it doesn't exist
+    if not os.path.exists(LOGS_DIR):
+        os.makedirs(LOGS_DIR)
+        print(f"{Fore.BLUE}Created logs directory at {Fore.CYAN}{LOGS_DIR}{Style.RESET_ALL}")
 
 def load_cache():
     """Load the cache from the SQLite database"""
@@ -503,8 +512,8 @@ def get_pokemon_data(name):
         pokemon = {
             "name": data["name"],
             "base_experience": data["base_experience"],
-            "height": data["height"],
-            "weight": data["weight"]
+            "height": data["height"],  # Height is in decimeters (1/10 meter)
+            "weight": data["weight"]   # Weight is in hectograms (1/10 kg)
         }
         # Add to cache
         add_to_cache("pokemon", normalized_name, pokemon)
@@ -669,12 +678,69 @@ def correct_typos(entity_name):
     """This function is disabled - returns entity name unchanged"""
     return entity_name
 
+def log_failed_problem(problem_text, formula, answer, response_data, entities_info=None, calculation=None):
+    """Log a failed problem to a text file
+    
+    Args:
+        problem_text: The original problem text
+        formula: The formula used to solve the problem
+        answer: The calculated answer
+        response_data: The API response data
+        entities_info: Information about the entities used (optional)
+        calculation: Information about the calculation performed (optional)
+    """
+    try:
+        # Generate a hash for the problem text
+        problem_hash = get_problem_hash(problem_text)
+        
+        # Create a timestamp
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Create the log filename
+        log_file = os.path.join(LOGS_DIR, f"{problem_hash}.txt")
+        
+        # Write the log file
+        with open(log_file, "w", encoding="utf-8") as f:
+            f.write(f"FAILED PROBLEM LOG - {timestamp}\n")
+            f.write("="*80 + "\n\n")
+            
+            f.write("PROBLEM TEXT:\n")
+            f.write(f"{problem_text}\n\n")
+            
+            f.write("FORMULA:\n")
+            f.write(f"{formula}\n\n")
+            
+            if entities_info:
+                f.write("ENTITIES USED:\n")
+                f.write(f"{entities_info}\n\n")
+            
+            if calculation:
+                f.write("CALCULATION:\n")
+                f.write(f"{calculation}\n\n")
+            
+            f.write("SUBMITTED ANSWER:\n")
+            f.write(f"{answer}\n\n")
+            
+            f.write("API RESPONSE:\n")
+            f.write(f"{json.dumps(response_data, indent=2)}\n\n")
+            
+            f.write("HASH:\n")
+            f.write(f"{problem_hash}\n")
+        
+        print(f"{Fore.YELLOW}Failed problem logged to {Fore.WHITE}{log_file}{Style.RESET_ALL}")
+        
+    except Exception as e:
+        print(f"{Fore.RED}Error logging failed problem: {e}{Style.RESET_ALL}")
+
 def evaluate_expression(formula):
     """Evaluate the mathematical expression based on the formula provided by AI"""
     print(f"{Fore.BLUE}Original formula: {Fore.CYAN}{formula}{Style.RESET_ALL}")
     
     # We'll collect all variables mentioned in the formula
     variables = {}
+    
+    # Collection for logging
+    entities_log = []
     
     # Extract entity names and attributes from the formula - handle both quoted and unquoted names
     # This complex pattern handles several cases:
@@ -775,9 +841,14 @@ def evaluate_expression(formula):
     print(f"{Fore.BLUE}Entity values used in calculation:{Style.RESET_ALL}")
     for original_text, entity_name, attribute in entities_to_process:
         if entity_name in variables and attribute in variables[entity_name]:
+            # Get the attribute value
             value = variables[entity_name][attribute]
-            # Print the value
+            
+            # No unit conversions - use the original value
+            log_entry = f"{entity_name}.{attribute} = {value}"
+            entities_log.append(log_entry)
             print(f"{Fore.CYAN}  • {Fore.WHITE}{entity_name}{Fore.CYAN}.{Fore.WHITE}{attribute}{Fore.CYAN} = {Fore.WHITE}{value}{Style.RESET_ALL}")
+            
             # Replace the complete original text with the value
             eval_formula = eval_formula.replace(original_text, str(value))
         else:
@@ -785,6 +856,8 @@ def evaluate_expression(formula):
                 print(f"{Fore.YELLOW}Warning: Attribute '{Fore.WHITE}{attribute}{Fore.YELLOW}' not found for entity '{Fore.WHITE}{entity_name}{Fore.YELLOW}'{Style.RESET_ALL}")
                 print(f"{Fore.BLUE}Available attributes: {Fore.WHITE}{list(variables[entity_name].keys())}{Fore.BLUE}{Style.RESET_ALL}")
             # Default to 0 if we can't find the attribute
+            log_entry = f"{entity_name}.{attribute} = 0 (NOT FOUND)"
+            entities_log.append(log_entry)
             print(f"{Fore.RED}Using default value 0 for {Fore.WHITE}{entity_name}{Fore.RED}.{Fore.WHITE}{attribute}{Style.RESET_ALL}")
             eval_formula = eval_formula.replace(original_text, "0")
     
@@ -811,7 +884,10 @@ def evaluate_expression(formula):
         # Round to 10 decimal places as specified in the challenge
         result = round(float(result), 10)
         print(f"{Fore.MAGENTA}Result: {Fore.WHITE}{result}{Style.RESET_ALL}")
-        return result
+        
+        # Return the result along with logging information
+        calculation_log = f"Formula: {formula}\nEvaluating: {eval_formula}\nResult: {result}"
+        return result, "\n".join(entities_log), calculation_log
     except Exception as e:
         print(f"{Fore.RED}Error evaluating formula: {e}{Style.RESET_ALL}")
         print(f"{Fore.RED}Formula: {eval_formula}{Style.RESET_ALL}")
@@ -832,10 +908,13 @@ def evaluate_expression(formula):
             result = eval(clean_formula)
             result = round(float(result), 10)
             print(f"{Fore.GREEN}Salvaged result: {Fore.WHITE}{result}{Style.RESET_ALL}")
-            return result
+            
+            # Return the result along with logging information
+            calculation_log = f"Formula: {formula}\nEvaluating (after cleanup): {clean_formula}\nResult: {result}"
+            return result, "\n".join(entities_log), calculation_log
         except Exception as e2:
             print(f"{Fore.RED}Cleanup failed: {e2}{Style.RESET_ALL}")
-            return None
+            return None, "\n".join(entities_log), f"Error: {str(e)}\nCleanup error: {str(e2)}"
 
 def get_problem_hash(problem_text):
     """Generate a hash for a problem text to use as a unique identifier"""
@@ -1005,6 +1084,8 @@ def run_challenge():
             print(f"{Fore.MAGENTA}Cached answer: {Fore.WHITE}{cached_answer}{Style.RESET_ALL}")
             formula = cached_formula
             answer = cached_answer
+            entities_info = None
+            calculation_info = None
         else:
             print(f"{Fore.YELLOW}Cache miss. Calculating answer...{Style.RESET_ALL}")
             # Parse problem with AI
@@ -1012,7 +1093,13 @@ def run_challenge():
             print(f"{Fore.BLUE}AI Formula: {Fore.CYAN}{formula}{Style.RESET_ALL}")
             
             # Evaluate the formula
-            answer = evaluate_expression(formula)
+            result = evaluate_expression(formula)
+            if isinstance(result, tuple) and len(result) == 3:
+                answer, entities_info, calculation_info = result
+            else:
+                answer = result
+                entities_info = None
+                calculation_info = None
             
             # Don't store in cache yet - only store if the answer is correct
         
@@ -1064,9 +1151,32 @@ def run_challenge():
                     elif solution_data["message"] == "Incorrect answer.":
                         was_correct = False
                         print(f"{Fore.RED}❌ INCORRECT. Your answer was wrong.{Style.RESET_ALL}")
+                        
+                        # Log failed problem
+                        if not is_cached and answer is not None and formula:
+                            log_failed_problem(
+                                problem_text=problem,
+                                formula=formula,
+                                answer=answer,
+                                response_data=solution_data,
+                                entities_info=entities_info,
+                                calculation=calculation_info
+                            )
+                            
                     elif solution_data["message"] == "Time limit exceeded.":
                         # Already handled above
                         was_correct = False
+                        
+                        # Log failed problem
+                        if not is_cached and answer is not None and formula:
+                            log_failed_problem(
+                                problem_text=problem,
+                                formula=formula,
+                                answer=answer,
+                                response_data=solution_data,
+                                entities_info=entities_info,
+                                calculation=calculation_info
+                            )
                     else:
                         print(f"{Fore.YELLOW}Unexpected message in response: {solution_data['message']}{Style.RESET_ALL}")
                         # If we can't determine correctness, we'll assume it's correct if we got a next problem
@@ -1086,6 +1196,17 @@ def run_challenge():
                         else:
                             was_correct = False
                             print(f"{Fore.RED}❌ INCORRECT. Your answer was wrong.{Style.RESET_ALL}")
+                            
+                            # Log failed problem
+                            if not is_cached and answer is not None and formula:
+                                log_failed_problem(
+                                    problem_text=problem,
+                                    formula=formula,
+                                    answer=answer,
+                                    response_data=solution_data,
+                                    entities_info=entities_info,
+                                    calculation=calculation_info
+                                )
                     else:
                         # If we can't determine correctness, don't increment solved_count
                         print(f"{Fore.YELLOW}Could not determine if answer was correct from response.{Style.RESET_ALL}")

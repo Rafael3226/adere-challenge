@@ -1,2 +1,4 @@
 .env
 api_cache.db
+failed_problems
+problem_cache.db
