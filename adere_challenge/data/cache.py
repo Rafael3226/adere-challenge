@@ -5,9 +5,10 @@ import json
 import sqlite3
 import hashlib
 import time
+import re
 from colorama import Fore, Style
 
-from adere_challenge.utils.logger import log
+from adere_challenge.utils.logger import log, debug
 from adere_challenge.utils.constants import DB_FILE, LOGS_DIR
 
 # In-memory cache for faster access during runtime
@@ -17,6 +18,13 @@ cache = {
     "swapi_planets": {}
 }
 
+# Map entity type keys to table names
+ENTITY_TABLE_MAP = {
+    "pokemon": "pokemon",
+    "swapi_characters": "starwars_characters",
+    "swapi_planets": "starwars_planets"
+}
+
 def initialize_db():
     """Initialize the SQLite database for caching."""
     conn = sqlite3.connect(DB_FILE)
@@ -24,40 +32,58 @@ def initialize_db():
     
     # Create tables if they don't exist
     cursor.execute('''
+    CREATE TABLE IF NOT EXISTS api_cache (
+        url TEXT PRIMARY KEY,
+        response TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+    
+    # Create Pokemon table if it doesn't exist
+    cursor.execute('''
     CREATE TABLE IF NOT EXISTS pokemon (
-        name TEXT PRIMARY KEY,
-        data TEXT
+        id INTEGER PRIMARY KEY,
+        name TEXT UNIQUE,
+        data TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     ''')
     
+    # Create Star Wars character table if it doesn't exist
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS swapi_characters (
-        name TEXT PRIMARY KEY,
-        data TEXT
+    CREATE TABLE IF NOT EXISTS starwars_characters (
+        id INTEGER PRIMARY KEY,
+        name TEXT UNIQUE,
+        data TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     ''')
     
+    # Create Star Wars planet table if it doesn't exist
     cursor.execute('''
-    CREATE TABLE IF NOT EXISTS swapi_planets (
-        name TEXT PRIMARY KEY,
-        data TEXT
+    CREATE TABLE IF NOT EXISTS starwars_planets (
+        id INTEGER PRIMARY KEY,
+        name TEXT UNIQUE,
+        data TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     ''')
     
-    # Create problem cache table
+    # Create problem cache table if it doesn't exist
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS problem_cache (
         problem_hash TEXT PRIMARY KEY,
         problem_text TEXT,
         formula TEXT,
-        answer REAL,
-        timestamp INTEGER
+        answer TEXT,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
     )
     ''')
     
     conn.commit()
     conn.close()
-    log(f"{Fore.BLUE}Database initialized at {Fore.CYAN}{DB_FILE}{Style.RESET_ALL}")
+    
+    debug(f"Database initialized at {DB_FILE}")
     
     # Create logs directory if it doesn't exist
     if not os.path.exists(LOGS_DIR):
@@ -77,20 +103,34 @@ def load_cache():
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
         
+        # For debugging, show table info
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        tables = cursor.fetchall()
+        debug(f"Database tables: {tables}")
+        
         # Load Pokemon
         cursor.execute("SELECT name, data FROM pokemon")
+        pokemon_count = 0
         for name, data_json in cursor.fetchall():
             cache["pokemon"][name] = json.loads(data_json)
+            pokemon_count += 1
+        debug(f"Loaded {pokemon_count} Pokemon from database")
         
-        # Load Star Wars characters
-        cursor.execute("SELECT name, data FROM swapi_characters")
+        # Load Star Wars characters - fixed to match the table name
+        cursor.execute("SELECT name, data FROM starwars_characters")
+        character_count = 0
         for name, data_json in cursor.fetchall():
             cache["swapi_characters"][name] = json.loads(data_json)
+            character_count += 1
+        debug(f"Loaded {character_count} Star Wars characters from database")
         
-        # Load Star Wars planets
-        cursor.execute("SELECT name, data FROM swapi_planets")
+        # Load Star Wars planets - fixed to match the table name
+        cursor.execute("SELECT name, data FROM starwars_planets")
+        planet_count = 0
         for name, data_json in cursor.fetchall():
             cache["swapi_planets"][name] = json.loads(data_json)
+            planet_count += 1
+        debug(f"Loaded {planet_count} Star Wars planets from database")
         
         # Count problem cache entries
         cursor.execute("SELECT COUNT(*) FROM problem_cache")
@@ -98,10 +138,10 @@ def load_cache():
         
         conn.close()
         
-        log(f"{Fore.GREEN}Cache loaded with {Fore.WHITE}{len(cache['pokemon'])} Pokémon, "
-              f"{Fore.WHITE}{len(cache['swapi_characters'])} Star Wars characters, "
-              f"{Fore.WHITE}{len(cache['swapi_planets'])} Star Wars planets, and "
-              f"{Fore.WHITE}{problem_count} cached problems.{Style.RESET_ALL}")
+        debug(f"Cache loaded with {len(cache['pokemon'])} Pokémon, "
+              f"{len(cache['swapi_characters'])} Star Wars characters, "
+              f"{len(cache['swapi_planets'])} Star Wars planets, and "
+              f"{problem_count} cached problems.")
               
     except Exception as e:
         log(f"{Fore.RED}Error loading cache: {e}{Style.RESET_ALL}")
@@ -120,6 +160,9 @@ def add_to_cache(entity_type, name, data):
         # Update in-memory cache
         cache[entity_type][name] = data
         
+        # Get the corresponding table name
+        table_name = ENTITY_TABLE_MAP.get(entity_type, entity_type)
+        
         # Update database
         conn = sqlite3.connect(DB_FILE)
         cursor = conn.cursor()
@@ -128,11 +171,13 @@ def add_to_cache(entity_type, name, data):
         data_json = json.dumps(data)
         
         # Insert or replace
-        cursor.execute(f"INSERT OR REPLACE INTO {entity_type} (name, data) VALUES (?, ?)",
+        cursor.execute(f"INSERT OR REPLACE INTO {table_name} (name, data) VALUES (?, ?)",
                      (name, data_json))
         
         conn.commit()
         conn.close()
+        
+        debug(f"Added/updated '{name}' in {entity_type} cache and {table_name} table")
         
     except Exception as e:
         log(f"{Fore.RED}Error adding to cache: {e}{Style.RESET_ALL}")
@@ -246,6 +291,16 @@ def log_failed_problem(problem_text, formula, answer, response_data, entities_in
         
         # Create the log filename
         log_file = os.path.join(LOGS_DIR, f"{problem_hash}.txt")
+        
+        # Clean up potential issues in formula
+        if formula:
+            # Fix spaces between quoted entity names and attributes
+            formula = re.sub(r'("([^"]+)")\s+\.([a-zA-Z_][a-zA-Z0-9_]*)', r'\1.\3', formula)
+        
+        # Make sure LOGS_DIR exists
+        if not os.path.exists(LOGS_DIR):
+            os.makedirs(LOGS_DIR)
+            log(f"{Fore.YELLOW}Created logs directory: {Fore.WHITE}{LOGS_DIR}{Style.RESET_ALL}")
         
         # Write the log file
         with open(log_file, "w", encoding="utf-8") as f:

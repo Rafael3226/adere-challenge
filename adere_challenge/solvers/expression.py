@@ -24,6 +24,11 @@ def evaluate_expression(formula, api_client=None):
         
     log(f"{Fore.BLUE}Original formula: {Fore.CYAN}{formula}{Style.RESET_ALL}")
     
+    # Pre-process formula to clean up spaces between quoted entities and attributes
+    # Fix cases like "entity" .attribute -> "entity".attribute
+    formula = re.sub(r'("([^"]+)")\s+\.([a-zA-Z_][a-zA-Z0-9_]*)', r'\1.\3', formula)
+    log(f"{Fore.BLUE}Preprocessed formula: {Fore.CYAN}{formula}{Style.RESET_ALL}")
+    
     # We'll collect all variables mentioned in the formula
     variables = {}
     
