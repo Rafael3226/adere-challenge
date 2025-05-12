@@ -12,6 +12,7 @@ from adere_challenge.data.starwars import prefetch_starwars
 from adere_challenge.solvers.expression import evaluate_expression
 from adere_challenge.challenge.runner import ChallengeRunner
 from adere_challenge.utils.logger import log, set_debug_mode, debug
+from adere_challenge.utils.entity_finder import review_failed_problems
 
 # Initialize colorama
 init(autoreset=True)
@@ -28,6 +29,7 @@ def create_parser():
     parser.add_argument("--no-prefetch", action="store_true", help="Skip prefetching of common entities")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     parser.add_argument("--reset-cache", action="store_true", help="Reset the cache before starting")
+    parser.add_argument("--review-failed", action="store_true", help="Review failed problems and find entities with default value 0")
     return parser
 
 def main():
@@ -56,6 +58,16 @@ def main():
     
     if args.debug:
         debug(f"{Fore.YELLOW}Debug mode enabled{Style.RESET_ALL}")
+    
+    # Check if we should review failed problems
+    if args.review_failed:
+        # Initialize database and load cache before reviewing
+        initialize_db()
+        load_cache()
+        
+        # Review failed problems
+        review_failed_problems(api_client)
+        return
         
     def setup_environment():
         """Initialize database and prefetch data."""

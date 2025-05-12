@@ -40,6 +40,7 @@ TASK:
 
 IMPORTANT: 
 - Estructure for each vaule is: "entity".attribute
+- usually when the  problem talk about mass is talking about the planet mass
 - Return ONLY the formula/expression, nothing else
 - For entity names with multiple words (like "Luke Skywalker" or "Tapu Koko"), use quotes: "luke skywalker".[attributes] or "tapu koko".[attributes]
 - Handle compound names like Tapu-Koko, Type-Null as single units (e.g., "tapu-koko".[attributes])
