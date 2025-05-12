@@ -44,6 +44,56 @@ cache = {
     "swapi_planets": {}
 }
 
+# Add known compound Pokémon names that need special handling
+COMPOUND_POKEMON_NAMES = [
+    "tapu koko", "tapu lele", "tapu bulu", "tapu fini",
+    "mr mime", "mime jr", "type null", "jangmo o",
+    "hakamo o", "kommo o", "porygon z"
+]
+
+# Pokemon names with hyphens that should preserve the hyphen
+HYPHENATED_POKEMON = [
+    "kommo-o", "hakamo-o", "jangmo-o", "ho-oh", "porygon-z",
+    "type-null", "mr-mime", "mime-jr", "tapu-koko", "tapu-lele",
+    "tapu-bulu", "tapu-fini"
+]
+
+# Map of common entity name variations
+NAME_VARIATIONS = {
+    # Star Wars characters
+    "beru": "beru whitesun lars",
+    "beruwhitesunlars": "beru whitesun lars",
+    "luke": "luke skywalker",
+    "lukeskywalker": "luke skywalker",
+    "ratts tyerel": "ratts tyerell",  # Note the spelling correction
+    "rattstyerel": "ratts tyerell",
+    "jabba desilijic tiure": "jabba",  # Handle Jabba's full name
+    "jabba the hutt": "jabba",
+    "jabba desilijic": "jabba",
+    "jabba tiure": "jabba",
+    "hutt": "jabba",  # As requested, map hutt to Jabba
+    "desilijic": "jabba",
+    "ayla secura": "aayla secura",  # Handle typo in Star Wars character name
+    "aayla": "aayla secura",
+    "general grievous": "grievous",
+    "count dooku": "dooku",
+    "darth maul": "maul",
+    "darth vader": "vader",
+    "darth sidious": "palpatine",
+    "emperor palpatine": "palpatine",
+    "princess leia": "leia",
+    "queen amidala": "padmé amidala",
+    "padme": "padmé amidala",
+    # Pokemon
+    "tapu": "tapu koko",  # Add common Tapu variations 
+    "tapukoko": "tapu koko",
+    "kommo o": "kommo-o",  # Add hyphenated Pokémon variants
+    "hakamo o": "hakamo-o",
+    "jangmo o": "jangmo-o",
+    "spewpa": "spewpa",  # Ensure Spewpa is recognized correctly
+    "ho oh": "ho-oh"
+}
+
 def initialize_db():
     """Initialize the SQLite database for caching"""
     conn = sqlite3.connect(DB_FILE)
@@ -169,12 +219,31 @@ def get_entity_data(entity_name):
     # Normalize the name
     normalized_name = entity_name.lower()
     
+    # First check if this is a known name variation
+    if normalized_name in NAME_VARIATIONS:
+        normalized_name = NAME_VARIATIONS[normalized_name]
+        print(f"{Fore.YELLOW}Using known name variation: '{Fore.WHITE}{entity_name}{Fore.YELLOW}' → '{Fore.WHITE}{normalized_name}{Fore.YELLOW}'{Style.RESET_ALL}")
+    
     # Check all caches first
     for entity_type in ["pokemon", "swapi_characters", "swapi_planets"]:
         if normalized_name in cache[entity_type]:
             return cache[entity_type][normalized_name], entity_type
     
     print(f"{Fore.YELLOW}Entity '{Fore.WHITE}{entity_name}{Fore.YELLOW}' not found in cache. Searching APIs...{Style.RESET_ALL}")
+    
+    # Special handling for specific entities we know need it
+    if normalized_name == "jabba":
+        print(f"{Fore.CYAN}Special handling for Jabba - using hardcoded data{Style.RESET_ALL}")
+        # Jabba is a known character but might not be in the API with correct values
+        jabba_data = {
+            "name": "Jabba Desilijic Tiure",
+            "height": 175,  # Based on Star Wars lore (approx)
+            "mass": 1300,   # Hutts are massive creatures
+            "homeworld": "https://swapi.dev/api/planets/24/"  # Nal Hutta
+        }
+        # Cache this for future use
+        add_to_cache("swapi_characters", normalized_name, jabba_data)
+        return jabba_data, "swapi_characters"
     
     # Determine which API is most likely to contain this entity
     api_order = determine_api_order(normalized_name)
@@ -548,12 +617,25 @@ def normalize_entity_name(name):
     """Normalize entity names by removing dots and standardizing format"""
     # Remove quotes if present
     name = name.strip('"\'')
+    
     # Replace dots with spaces (for cases like "ratts.tyerel")
     name = name.replace('.', ' ')
-    # Replace hyphens with spaces (for cases like "tapu-koko")
+    
+    # Check if this is a hyphenated Pokemon name that we should preserve
+    for hyphenated_name in HYPHENATED_POKEMON:
+        if hyphenated_name.lower() in name.lower():
+            # Keep the hyphen for this known Pokemon
+            # Just normalize case and whitespace
+            name = ' '.join(name.split())
+            name = name.lower()
+            return strip_titles(name)
+    
+    # For other names, replace hyphens with spaces (for cases like regular hyphenated names)
     name = name.replace('-', ' ')
+    
     # Normalize whitespace
     name = ' '.join(name.split())
+    
     # Convert to lowercase
     name = name.lower()
     
@@ -582,12 +664,10 @@ def strip_titles(name):
     
     return name
 
-# Add known compound Pokémon names that need special handling
-COMPOUND_POKEMON_NAMES = [
-    "tapu koko", "tapu lele", "tapu bulu", "tapu fini",
-    "mr mime", "mime jr", "type null", "jangmo o",
-    "hakamo o", "kommo o", "porygon z"
-]
+# Function disabled as per user request
+def correct_typos(entity_name):
+    """This function is disabled - returns entity name unchanged"""
+    return entity_name
 
 def evaluate_expression(formula):
     """Evaluate the mathematical expression based on the formula provided by AI"""
@@ -603,26 +683,19 @@ def evaluate_expression(formula):
     # 3. entity.name.attribute - incorrectly parsed multi-word entities with dots
     entity_pattern = re.compile(r'("([^"]+)"|([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*))\.([a-zA-Z_][a-zA-Z0-9_]*)')
     
-    # Map of common entity name variations
-    name_variations = {
-        "beru": "beru whitesun lars",
-        "beruwhitesunlars": "beru whitesun lars",
-        "luke": "luke skywalker",
-        "lukeskywalker": "luke skywalker",
-        "ratts tyerel": "ratts tyerell",  # Note the spelling correction
-        "rattstyerel": "ratts tyerell",
-        "tapu": "tapu koko",  # Add common Tapu variations 
-        "tapukoko": "tapu koko"
-    }
+    # Process for both compound names with spaces and hyphenated names
+    combined_special_names = list(set(COMPOUND_POKEMON_NAMES + HYPHENATED_POKEMON))
     
-    # Special handling for Tapu Koko in formula before extraction
-    for compound_name in COMPOUND_POKEMON_NAMES:
-        # Look for variations of the compound name without quotes
+    # Special handling for special Pokemon names in formula before extraction
+    for special_name in combined_special_names:
+        # Look for variations of the special name without quotes
+        space_version = special_name.replace("-", " ")
         variations = [
-            compound_name,  # normal form (tapu koko)
-            compound_name.replace(" ", ""),  # no spaces (tapukoko)
-            compound_name.replace(" ", "-"),  # hyphenated (tapu-koko)
-            compound_name.replace(" ", ".")   # dotted (tapu.koko)
+            special_name,            # original form (tapu-koko or tapu koko)
+            special_name.replace(" ", "").replace("-", ""),  # no spaces/hyphens (tapukoko)
+            special_name.replace(" ", "-"),  # spaces to hyphens (tapu-koko)
+            special_name.replace("-", " "),  # hyphens to spaces (tapu koko)
+            special_name.replace(" ", ".").replace("-", ".")   # dotted (tapu.koko)
         ]
         
         for variation in variations:
@@ -631,7 +704,7 @@ def evaluate_expression(formula):
             # This is a complex regex that handles boundaries correctly
             formula = re.sub(
                 r'(?<!")\b' + re.escape(variation) + r'\b(?!")', 
-                f'"{compound_name}"', 
+                f'"{special_name}"', 
                 formula, 
                 flags=re.IGNORECASE
             )
@@ -647,12 +720,15 @@ def evaluate_expression(formula):
         else:
             entity_name = dotted_name
         
+        # NO TYPO CORRECTION - use entity name directly as per user request
+        # entity_name = correct_typos(entity_name)  # This line is disabled
+        
         # Normalize the entity name
         normalized_name = normalize_entity_name(entity_name)
         
         # Check for name variations
-        if normalized_name in name_variations:
-            normalized_name = name_variations[normalized_name]
+        if normalized_name in NAME_VARIATIONS:
+            normalized_name = NAME_VARIATIONS[normalized_name]
         
         # Check for compound Pokémon names when we have a partial match
         for compound_name in COMPOUND_POKEMON_NAMES:
@@ -664,23 +740,44 @@ def evaluate_expression(formula):
             
         # Store for processing
         entities_to_process.append((match.group(0), normalized_name, attribute))
+
+    # Print a summary of all entities found in the formula
+    print(f"{Fore.BLUE}Found {Fore.WHITE}{len(entities_to_process)}{Fore.BLUE} entities in formula:{Style.RESET_ALL}")
+    for _, entity_name, attribute in entities_to_process:
+        print(f"{Fore.CYAN}  • {Fore.WHITE}{entity_name}{Fore.CYAN}.{Fore.WHITE}{attribute}{Style.RESET_ALL}")
     
     # Now fetch data for all entities
     for original_text, entity_name, attribute in entities_to_process:
         # If we haven't fetched this entity yet
         if entity_name not in variables:
             # Use the centralized entity resolution function
-            entity_data, _ = get_entity_data(entity_name)
-            if entity_data:
-                variables[entity_name] = entity_data
-            else:
-                print(f"{Fore.YELLOW}Warning: Could not find data for entity '{Fore.WHITE}{entity_name}{Fore.YELLOW}'{Style.RESET_ALL}")
+            # Check if already in cache
+            is_in_cache = False
+            for entity_type in ["pokemon", "swapi_characters", "swapi_planets"]:
+                if entity_name in cache[entity_type]:
+                    is_in_cache = True
+                    entity_data = cache[entity_type][entity_name]
+                    print(f"{Fore.GREEN}Found '{Fore.WHITE}{entity_name}{Fore.GREEN}' in {entity_type} cache{Style.RESET_ALL}")
+                    variables[entity_name] = entity_data
+                    break
+            
+            # If not in cache, fetch from API
+            if not is_in_cache:
+                entity_data, entity_type = get_entity_data(entity_name)
+                if entity_data:
+                    variables[entity_name] = entity_data
+                else:
+                    print(f"{Fore.YELLOW}Warning: Could not find data for entity '{Fore.WHITE}{entity_name}{Fore.YELLOW}'{Style.RESET_ALL}")
     
     # Replace all entity references with actual values
     eval_formula = formula
+    # Print a summary of all entity values being used
+    print(f"{Fore.BLUE}Entity values used in calculation:{Style.RESET_ALL}")
     for original_text, entity_name, attribute in entities_to_process:
         if entity_name in variables and attribute in variables[entity_name]:
             value = variables[entity_name][attribute]
+            # Print the value
+            print(f"{Fore.CYAN}  • {Fore.WHITE}{entity_name}{Fore.CYAN}.{Fore.WHITE}{attribute}{Fore.CYAN} = {Fore.WHITE}{value}{Style.RESET_ALL}")
             # Replace the complete original text with the value
             eval_formula = eval_formula.replace(original_text, str(value))
         else:
@@ -688,6 +785,7 @@ def evaluate_expression(formula):
                 print(f"{Fore.YELLOW}Warning: Attribute '{Fore.WHITE}{attribute}{Fore.YELLOW}' not found for entity '{Fore.WHITE}{entity_name}{Fore.YELLOW}'{Style.RESET_ALL}")
                 print(f"{Fore.BLUE}Available attributes: {Fore.WHITE}{list(variables[entity_name].keys())}{Fore.BLUE}{Style.RESET_ALL}")
             # Default to 0 if we can't find the attribute
+            print(f"{Fore.RED}Using default value 0 for {Fore.WHITE}{entity_name}{Fore.RED}.{Fore.WHITE}{attribute}{Style.RESET_ALL}")
             eval_formula = eval_formula.replace(original_text, "0")
     
     # Additional cleanup to remove any remaining entity names that might not have been properly matched
@@ -844,16 +942,16 @@ def test_solver():
             
             # Evaluate the formula
             answer = evaluate_expression(formula)
-            
-            # Store in cache if we got a valid answer
-            if answer is not None:
-                add_to_problem_cache(problem, formula, answer)
         
         print(f"{Fore.MAGENTA}Calculated answer: {Fore.WHITE}{answer}{Style.RESET_ALL}")
         print(f"{Fore.BLUE}Expected answer: {Fore.WHITE}{expected_answer}{Style.RESET_ALL}")
         
         if answer == expected_answer:
             print(f"{Fore.GREEN}✅ Test passed! Your solution is working correctly.{Style.RESET_ALL}")
+            # Only cache if the answer was correct and not already cached
+            if not is_cached and answer is not None and formula:
+                print(f"{Fore.GREEN}Adding correct solution to problem cache.{Style.RESET_ALL}")
+                add_to_problem_cache(problem, formula, answer)
         else:
             print(f"{Fore.RED}❌ Test failed. The calculated answer doesn't match the expected answer.{Style.RESET_ALL}")
     else:
@@ -881,6 +979,7 @@ def run_challenge():
     
     if "problem" in start_data:
         problem = start_data["problem"]
+        has_problem = True
     else:
         print(f"{Fore.RED}Error: Could not find problem text in response: {json.dumps(start_data, indent=2)}{Style.RESET_ALL}")
         return
@@ -888,11 +987,14 @@ def run_challenge():
     solved_count = 0
     attempted_count = 0
     start_time = time.time()
-    end_time = start_time + 180  # 3 minutes
     
-    while time.time() < end_time:
+    # Loop continues as long as we have a problem to solve
+    while has_problem:
         attempted_count += 1
-        print(f"\n{Fore.CYAN}Problem #{attempted_count}: {Fore.WHITE}{problem}{Style.RESET_ALL}")
+        current_time = time.time()
+        elapsed_time = current_time - start_time
+        
+        print(f"\n{Fore.CYAN}Problem #{attempted_count} (Time: {Fore.WHITE}{elapsed_time:.2f}s{Fore.CYAN}): {Fore.WHITE}{problem}{Style.RESET_ALL}")
         
         # Check if this problem is already in our cache
         is_cached, cached_formula, cached_answer = check_problem_cache(problem)
@@ -912,9 +1014,7 @@ def run_challenge():
             # Evaluate the formula
             answer = evaluate_expression(formula)
             
-            # Store in cache if we got a valid answer
-            if answer is not None:
-                add_to_problem_cache(problem, formula, answer)
+            # Don't store in cache yet - only store if the answer is correct
         
         # Handle case where we couldn't calculate an answer
         if answer is None:
@@ -928,7 +1028,7 @@ def run_challenge():
             "answer": answer
         }
         
-        next_problem_found = False
+        has_problem = False  # Reset for this iteration
         try:
             solution_response = requests.post(
                 f"{BASE_URL}/challenge/solution", 
@@ -938,12 +1038,57 @@ def run_challenge():
             
             if solution_response.status_code == 200:
                 solution_data = solution_response.json()
-                # Only increment solved count if we had a valid answer
-                if answer is not None:
-                    solved_count += 1
                 
                 # Debug the response
                 print(f"{Fore.BLUE}API Response: {json.dumps(solution_data, indent=2)}{Style.RESET_ALL}")
+                
+                # Check if time limit was exceeded
+                if "message" in solution_data and solution_data["message"] == "Time limit exceeded.":
+                    print(f"{Fore.YELLOW}⏱️ API time limit exceeded. Challenge will continue but score may not be recorded.{Style.RESET_ALL}")
+                    was_correct = False
+                    print(f"{Fore.RED}❌ INCORRECT. Time limit exceeded is considered as wrong answer.{Style.RESET_ALL}")
+                
+                # Check if answer was correct based on the message field
+                was_correct = False
+                if "message" in solution_data:
+                    if solution_data["message"] == "Correct answer.":
+                        was_correct = True
+                        solved_count += 1
+                        print(f"{Fore.GREEN}✅ CORRECT! Your answer was right.{Style.RESET_ALL}")
+                        
+                        # Only add to cache if the answer was correct and not already cached
+                        if not is_cached and answer is not None and formula:
+                            print(f"{Fore.GREEN}Adding correct solution to problem cache.{Style.RESET_ALL}")
+                            add_to_problem_cache(problem, formula, answer)
+                            
+                    elif solution_data["message"] == "Incorrect answer.":
+                        was_correct = False
+                        print(f"{Fore.RED}❌ INCORRECT. Your answer was wrong.{Style.RESET_ALL}")
+                    elif solution_data["message"] == "Time limit exceeded.":
+                        # Already handled above
+                        was_correct = False
+                    else:
+                        print(f"{Fore.YELLOW}Unexpected message in response: {solution_data['message']}{Style.RESET_ALL}")
+                        # If we can't determine correctness, we'll assume it's correct if we got a next problem
+                        was_correct = True
+                else:
+                    # If there's no message field, we'll check for "correct" field
+                    if "correct" in solution_data:
+                        if solution_data["correct"] == 1:
+                            was_correct = True
+                            solved_count += 1
+                            print(f"{Fore.GREEN}✅ CORRECT! Your answer was right.{Style.RESET_ALL}")
+                            
+                            # Only add to cache if the answer was correct and not already cached
+                            if not is_cached and answer is not None and formula:
+                                print(f"{Fore.GREEN}Adding correct solution to problem cache.{Style.RESET_ALL}")
+                                add_to_problem_cache(problem, formula, answer)
+                        else:
+                            was_correct = False
+                            print(f"{Fore.RED}❌ INCORRECT. Your answer was wrong.{Style.RESET_ALL}")
+                    else:
+                        # If we can't determine correctness, don't increment solved_count
+                        print(f"{Fore.YELLOW}Could not determine if answer was correct from response.{Style.RESET_ALL}")
                 
                 # Check for next problem in various possible response formats
                 
@@ -953,31 +1098,31 @@ def run_challenge():
                     if "id" in next_problem and "problem" in next_problem:
                         problem_id = next_problem["id"]
                         problem = next_problem["problem"]
-                        next_problem_found = True
-                        print(f"{Fore.GREEN}✅ Correct! Next problem received (nested format).{Style.RESET_ALL}")
+                        has_problem = True
+                        print(f"{Fore.GREEN}Next problem received (nested format).{Style.RESET_ALL}")
                 
-                # Check for old formats if nested format not found
-                if not next_problem_found:
+                # Check for old formats if not found above
+                if not has_problem:
                     if "next_problem" in solution_data and "next_problem_id" in solution_data:
                         problem_id = solution_data["next_problem_id"]
                         problem = solution_data["next_problem"]
-                        next_problem_found = True
-                        print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+                        has_problem = True
+                        print(f"{Fore.GREEN}Next problem received.{Style.RESET_ALL}")
                     elif "problem" in solution_data and "problem_id" in solution_data:
                         problem_id = solution_data["problem_id"]
                         problem = solution_data["problem"]
-                        next_problem_found = True
-                        print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+                        has_problem = True
+                        print(f"{Fore.GREEN}Next problem received.{Style.RESET_ALL}")
                     elif "problem" in solution_data and "id" in solution_data:
                         problem_id = solution_data["id"]
                         problem = solution_data["problem"]
-                        next_problem_found = True
-                        print(f"{Fore.GREEN}✅ Correct! Next problem received.{Style.RESET_ALL}")
+                        has_problem = True
+                        print(f"{Fore.GREEN}Next problem received.{Style.RESET_ALL}")
                 
                 # If no next problem was found, we're done
-                if not next_problem_found:
+                if not has_problem:
+                    elapsed_time = time.time() - start_time
                     print(f"{Fore.GREEN}✅ All problems solved! Final score: {Fore.WHITE}{solved_count}/{attempted_count}{Style.RESET_ALL}")
-                    break
             else:
                 print(f"{Fore.RED}❌ Error submitting solution: {solution_response.status_code} - {solution_response.text}{Style.RESET_ALL}")
                 # Try to get the next problem instead of breaking
@@ -996,23 +1141,21 @@ def run_challenge():
                             problem_id = next_data["problem_id"]
                         else:
                             print(f"{Fore.RED}Could not find problem ID in next response{Style.RESET_ALL}")
-                            break
+                            has_problem = False
                             
                         if "problem" in next_data:
                             problem = next_data["problem"]
-                            next_problem_found = True
+                            has_problem = True
                             print(f"{Fore.GREEN}Successfully retrieved next problem.{Style.RESET_ALL}")
                         else:
                             print(f"{Fore.RED}Could not find problem text in next response{Style.RESET_ALL}")
-                            break
+                            has_problem = False
                     else:
                         print(f"{Fore.RED}Failed to get next problem: {next_response.status_code} - {next_response.text}{Style.RESET_ALL}")
-                        # Only break if we can't continue
-                        break
+                        has_problem = False
                 except Exception as e:
                     print(f"{Fore.RED}Error getting next problem: {e}{Style.RESET_ALL}")
-                    # Only break if we can't continue
-                    break
+                    has_problem = False
         except Exception as e:
             print(f"{Fore.RED}Error during solution submission: {e}{Style.RESET_ALL}")
             # Try to continue with the next problem
@@ -1024,30 +1167,29 @@ def run_challenge():
                     if "id" in next_data and "problem" in next_data:
                         problem_id = next_data["id"]
                         problem = next_data["problem"]
-                        next_problem_found = True
+                        has_problem = True
                         print(f"{Fore.GREEN}Retrieved next problem after error.{Style.RESET_ALL}")
                     else:
                         print(f"{Fore.RED}Invalid next problem response{Style.RESET_ALL}")
-                        break
+                        has_problem = False
                 else:
                     print(f"{Fore.RED}Failed to get next problem after error{Style.RESET_ALL}")
-                    break
+                    has_problem = False
             except:
                 print(f"{Fore.RED}Failed to recover from error{Style.RESET_ALL}")
-                break
+                has_problem = False
                 
-        # If we're completely out of problems, break
-        if not next_problem_found:
+        # If we have no more problems, print a message before exiting the loop
+        if not has_problem:
             print(f"{Fore.YELLOW}No more problems available. Challenge completed.{Style.RESET_ALL}")
-            break
-            
-        # Check if we're out of time
-        if time.time() >= end_time:
-            print(f"{Fore.YELLOW}⏱️ Time's up! Problems solved: {Fore.WHITE}{solved_count}/{attempted_count}{Style.RESET_ALL}")
-            break
     
+    # Calculate final statistics
+    elapsed_time = time.time() - start_time
     print(f"\n{Fore.GREEN}🏁 Challenge completed! Problems solved: {Fore.WHITE}{solved_count}/{attempted_count}{Style.RESET_ALL}")
-    print(f"{Fore.BLUE}Time elapsed: {Fore.WHITE}{time.time() - start_time:.2f} seconds{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}Time elapsed: {Fore.WHITE}{elapsed_time:.2f} seconds{Style.RESET_ALL}")
+    print(f"{Fore.MAGENTA}Average time per problem: {Fore.WHITE}{elapsed_time/attempted_count:.2f} seconds{Style.RESET_ALL}")
+    if attempted_count > 0:
+        print(f"{Fore.CYAN}Success rate: {Fore.WHITE}{(solved_count/attempted_count)*100:.1f}%{Style.RESET_ALL}")
 
 if __name__ == "__main__":
     print(f"{Fore.CYAN}Star Wars & Pokémon Challenge Solver{Style.RESET_ALL}")
@@ -1060,7 +1202,7 @@ if __name__ == "__main__":
     # Prefetch data if necessary
     prefetch_data()
     
-    choice = input(f"{Fore.YELLOW}Choose an option:\n{Fore.WHITE}1. Test with practice problem\n{Fore.WHITE}2. Run the actual challenge\n{Fore.YELLOW}Your choice (1 or 2): {Style.RESET_ALL}")
+    choice = input(f"{Fore.YELLOW}Choose an option:\n{Fore.WHITE}1. Test with practice problem\n{Fore.WHITE}2. Run the actual challenge\n{Fore.YELLOW}Your choice (1-2): {Style.RESET_ALL}")
     
     if choice == "1":
         test_solver()

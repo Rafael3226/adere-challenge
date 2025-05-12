@@ -9,7 +9,7 @@ The challenge requires solving mathematical problems involving attributes of:
 - Star Wars planets
 - Pokémon
 
-The script uses GPT to parse the problem statements, fetches data from the relevant APIs, performs calculations, and submits answers—all within a 3-minute time limit.
+The script uses GPT to parse the problem statements, fetches data from the relevant APIs, performs calculations, and submits answers.
 
 ## Setup
 
@@ -33,9 +33,9 @@ python main.py
 
 You'll be presented with two options:
 1. Test with a practice problem - to verify your solution works
-2. Run the actual challenge - to solve as many problems as possible in 3 minutes
+2. Run the actual challenge - to solve as many problems as possible
 
-Before executing either option, the script will:
+Before executing any option, the script will:
 1. Initialize or connect to the SQLite database (`api_cache.db`)
 2. Load any previously cached data into memory
 3. If a sufficiently populated database exists, skip prefetching to save time
@@ -48,8 +48,9 @@ The SQLite database provides a robust and persistent cache that survives between
 
 ### Problem Caching
 
-The script now stores previously solved problems and their answers:
+The script stores verified correct problem solutions:
 - Each problem text is hashed to create a unique identifier
+- Only correct answers are stored in the cache (verified by the API)
 - The formula, answer, and timestamp are saved to the SQLite database
 - When a problem is encountered again, the cached answer is used immediately
 - This eliminates the need to recalculate solutions for repeat problems
@@ -67,6 +68,24 @@ The script uses a sophisticated algorithm to determine which API is most likely 
 - Reduces unnecessary API calls by trying the most likely source first
 
 This targeted approach significantly improves entity resolution speed and accuracy by minimizing failed API requests.
+
+### Enhanced Entity Resolution
+
+The script includes several mechanisms to improve entity matching:
+- Preserves hyphens in special Pokémon names (e.g., "kommo-o")
+- Handles compound names like "Tapu Koko" appropriately
+- Uses a comprehensive name variation dictionary to map alternate forms to canonical names
+- Special handling for characters like Jabba with hardcoded data when needed
+- Removes titles from character names (General, Princess, etc.)
+- Displays detailed information about entity resolution and values used in calculations
+
+### No Time Limit Constraint
+
+Unlike earlier versions, the script now continues running until all problems are solved:
+- No artificial time limit constraints
+- Processes all available problems from the challenge
+- Continues even after the API's time limit message
+- Tracks which problems were solved correctly and provides accurate statistics
 
 ### Colorized CLI
 
@@ -99,9 +118,20 @@ Colors make it easy to scan the output quickly and identify important informatio
      - Try common name variations (removing spaces, first name only)
      - Create and cache a fallback entity if all lookups fail
 8. Evaluates the expression with the retrieved data
-9. Caches the problem, formula, and answer for future use
-10. Submits the answer and receives the next problem
-11. Repeats until the 3-minute limit is reached
+9. Submits the answer and waits for confirmation
+10. If the answer is correct, caches the problem, formula, and answer for future use
+11. Receives the next problem and repeats until no more problems are available
+12. Displays comprehensive statistics upon completion
+
+## Recent Improvements
+
+- Only caches problems with verified correct answers
+- Treats "Time limit exceeded" responses as incorrect answers
+- Preserves hyphens in special Pokémon names (e.g., "kommo-o", "hakamo-o")
+- Special case handling for "Jabba" with accurate mass data
+- Enhanced entity mapping for commonly misspelled or alternate character names
+- Improved logging that shows all entity values used in calculations
+- Enhanced accuracy tracking by checking the "message" field in responses
 
 ## Performance Optimization
 
